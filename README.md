@@ -67,15 +67,15 @@ ENABLE_MEDICATION_RULES=false
 ```
 
 This returns the DistilBERT predictions and safety guidance without waiting
-for Gemini or Firestore. Set both values back to `true` for the full workflow.
+for Groq or Firestore. Set both values back to `true` for the full workflow.
 
-Gemini retries default to one attempt per model so the streaming endpoint does
-not exceed a frontend timeout. Increase `GEMINI_MAX_ATTEMPTS` only when you
-want slower retries for temporary provider failures.
+Groq retries default to one attempt per model so the streaming endpoint does
+not exceed a frontend timeout. Increase `GROQ_MAX_ATTEMPTS` only when you want
+slower retries for temporary provider failures.
 
-`GEMINI_MODELS` controls the fallback list. The default uses one model and
-lets the application return its local fallback quickly when Gemini reports a
-temporary `503 UNAVAILABLE` response.
+`GROQ_MODELS` controls the fallback list. The default uses
+`llama-3.3-70b-versatile` and lets the application return its local fallback
+quickly when Groq is unavailable.
 
 For a deployed frontend, expose the local API through an HTTPS tunnel. For
 example, with Cloudflare Tunnel:
@@ -108,7 +108,7 @@ separate web service, then set the frontend API base URL to the backend URL.
 This repository includes `render.yaml` for Render. In the Render dashboard,
 create a Blueprint from the repository and add these secret/environment values:
 
-- `GEMINI_API_KEY`: your Gemini API key
+- `GROQ_API_KEY`: your Groq API key
 - `FIREBASE_SERVICE_ACCOUNT_JSON`: the complete Firebase Admin service-account
    JSON object on one line
 - `CORS_ORIGINS`: the deployed frontend origin, for example

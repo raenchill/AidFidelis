@@ -6,5 +6,5 @@ fastapi
 uvicorn[standard]
 pydantic
 python-dotenv
-google-genai
+groq
 firebase-admin

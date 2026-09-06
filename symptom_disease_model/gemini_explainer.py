@@ -4,21 +4,27 @@ import time
 from typing import List
 
 from dotenv import load_dotenv
-from google import genai
-from google.genai import errors, types
+from groq import Groq
 from pydantic import BaseModel, Field
 
 
 load_dotenv()
 
-api_key = os.getenv("GEMINI_API_KEY")
+client: Groq | None = None
 
-if not api_key:
-    raise RuntimeError(
-        "GEMINI_API_KEY was not found. Check your .env file."
-    )
 
-client = genai.Client(api_key=api_key)
+def get_client() -> Groq:
+    global client
+
+    if client is None:
+        api_key = os.getenv("GROQ_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError(
+                "GROQ_API_KEY was not found. Check your .env file."
+            )
+        client = Groq(api_key=api_key)
+
+    return client
 
 
 class PossibleCondition(BaseModel):
@@ -42,7 +48,7 @@ def generate_with_retry(
     max_attempts_per_model: int | None = None,
 ):
     """
-    Call Gemini with retries and fallback models.
+    Call Groq with retries and configurable fallback models.
 
     Retries temporary errors such as:
     - 408: Request timeout
@@ -53,8 +59,8 @@ def generate_with_retry(
     model_names = [
         model.strip()
         for model in os.getenv(
-            "GEMINI_MODELS",
-            "gemini-3.6-flash",
+            "GROQ_MODELS",
+            "llama-3.3-70b-versatile",
         ).split(",")
         if model.strip()
     ]
@@ -62,48 +68,39 @@ def generate_with_retry(
     if max_attempts_per_model is None:
         max_attempts_per_model = max(
             1,
-            int(os.getenv("GEMINI_MAX_ATTEMPTS", "1")),
+            int(os.getenv("GROQ_MAX_ATTEMPTS", "1")),
         )
-
-    retryable_status_codes = {
-        408,
-        429,
-        500,
-        502,
-        503,
-        504,
-    }
 
     last_error: Exception | None = None
 
     for model_name in model_names:
         for attempt in range(max_attempts_per_model):
             try:
-                return client.models.generate_content(
+                response = get_client().chat.completions.create(
                     model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=AidFidelisExplanation,
-                        temperature=0.2,
-                    ),
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "Return only valid JSON matching the requested explanation schema.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.2,
                 )
 
-            except errors.APIError as error:
+                content = response.choices[0].message.content
+                if not content:
+                    raise RuntimeError("Groq returned an empty explanation.")
+                return content
+
+            except Exception as error:
                 last_error = error
-
-                status_code = getattr(error, "code", None)
-
+                status_code = getattr(error, "status_code", None)
                 print(
-                    f"Gemini model {model_name} failed with status "
+                    f"Groq model {model_name} failed with status "
                     f"{status_code}: {error}"
                 )
-
-                if status_code not in retryable_status_codes:
-                    raise RuntimeError(
-                        f"Gemini request failed with status "
-                        f"{status_code}: {error}"
-                    ) from error
 
                 if attempt < max_attempts_per_model - 1:
                     delay_seconds = (
@@ -112,7 +109,7 @@ def generate_with_retry(
                     )
 
                     print(
-                        f"Gemini model {model_name} is temporarily "
+                        f"Groq model {model_name} is temporarily "
                         f"unavailable. Retrying in "
                         f"{delay_seconds:.1f} seconds..."
                     )
@@ -120,11 +117,11 @@ def generate_with_retry(
                     time.sleep(delay_seconds)
 
         print(
-            f"Switching from {model_name} to another Gemini model."
+            f"Switching from {model_name} to another Groq model."
         )
 
     raise RuntimeError(
-        "The Gemini explanation service is temporarily unavailable "
+        "The Groq explanation service is temporarily unavailable "
         "after several retries. Please try again shortly."
     ) from last_error
 
@@ -192,18 +189,8 @@ STRICT RULES
 """.strip()
 
     try:
-        response = generate_with_retry(prompt)
-
-        if not response.text:
-            raise RuntimeError(
-                "Gemini returned an empty explanation."
-            )
-
-        explanation = (
-            AidFidelisExplanation.model_validate_json(
-                response.text
-            )
-        )
+        response_json = generate_with_retry(prompt)
+        explanation = AidFidelisExplanation.model_validate_json(response_json)
 
         validated = validate_conditions(
             explanation=explanation,
@@ -217,7 +204,7 @@ STRICT RULES
 
     except Exception as error:
         raise RuntimeError(
-            f"Gemini explanation failed: {error}"
+            f"Groq explanation failed: {error}"
         ) from error
 
 
