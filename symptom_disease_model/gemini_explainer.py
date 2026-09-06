@@ -39,7 +39,7 @@ class AidFidelisExplanation(BaseModel):
 
 def generate_with_retry(
     prompt: str,
-    max_attempts_per_model: int = 3,
+    max_attempts_per_model: int | None = None,
 ):
     """
     Call Gemini with retries and fallback models.
@@ -51,11 +51,19 @@ def generate_with_retry(
     """
 
     model_names = [
-        "gemini-3.6-flash",
-        "gemini-3.5-flash",
-        "gemini-3.7-flash",
-        "gemini-3.8-flash",
+        model.strip()
+        for model in os.getenv(
+            "GEMINI_MODELS",
+            "gemini-3.6-flash",
+        ).split(",")
+        if model.strip()
     ]
+
+    if max_attempts_per_model is None:
+        max_attempts_per_model = max(
+            1,
+            int(os.getenv("GEMINI_MAX_ATTEMPTS", "1")),
+        )
 
     retryable_status_codes = {
         408,
@@ -85,6 +93,11 @@ def generate_with_retry(
                 last_error = error
 
                 status_code = getattr(error, "code", None)
+
+                print(
+                    f"Gemini model {model_name} failed with status "
+                    f"{status_code}: {error}"
+                )
 
                 if status_code not in retryable_status_codes:
                     raise RuntimeError(

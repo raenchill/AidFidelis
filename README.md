@@ -69,6 +69,14 @@ ENABLE_MEDICATION_RULES=false
 This returns the DistilBERT predictions and safety guidance without waiting
 for Gemini or Firestore. Set both values back to `true` for the full workflow.
 
+Gemini retries default to one attempt per model so the streaming endpoint does
+not exceed a frontend timeout. Increase `GEMINI_MAX_ATTEMPTS` only when you
+want slower retries for temporary provider failures.
+
+`GEMINI_MODELS` controls the fallback list. The default uses one model and
+lets the application return its local fallback quickly when Gemini reports a
+temporary `503 UNAVAILABLE` response.
+
 For a deployed frontend, expose the local API through an HTTPS tunnel. For
 example, with Cloudflare Tunnel:
 
