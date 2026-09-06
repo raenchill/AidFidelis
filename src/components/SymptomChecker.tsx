@@ -7,7 +7,40 @@ interface SymptomAnalysis {
   severity: 'low' | 'medium' | 'high';
   advice: string;
   shouldSeeDoctor: boolean;
+  selfCare: string[];
+  redFlags: string[];
+  followUpQuestions: string[];
 }
+
+interface BackendPrediction {
+  disease: string;
+  confidence: number;
+}
+
+interface BackendResponse {
+  status: string;
+  message?: string;
+  predictions?: BackendPrediction[];
+  confidence_assessment?: {
+    level?: string;
+    message?: string;
+  };
+  explanation?: {
+    summary?: string;
+    self_care?: string[];
+    red_flags?: string[];
+    follow_up_questions?: string[];
+    recommended_action?: string;
+  };
+  medication_guidance?: {
+    medicine_names?: string[];
+    message?: string;
+  };
+}
+
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+).replace(/\/$/, '');
 
 const SymptomChecker: React.FC = () => {
   const [symptoms, setSymptoms] = useState<string>('');
@@ -26,85 +59,47 @@ const SymptomChecker: React.FC = () => {
     setAnalysis(null);
 
     try {
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const response = await fetch(`${API_BASE_URL}/api/symptom-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symptoms,
+          age: null,
+          sex: null,
+          duration: null,
+          previous_answers: [],
+          contraindication_screen_complet: false,
+        }),
+      });
 
-      // Mock analysis based on symptoms
-      const mockAnalysis = getMockAnalysis(symptoms.toLowerCase());
-      setAnalysis(mockAnalysis);
+      const payload = await response.json() as BackendResponse;
+
+      if (!response.ok) {
+        throw new Error(payload.message || 'The symptom checker request failed.');
+      }
+
+      const predictions = payload.predictions || [];
+      const explanation = payload.explanation || {};
+      const medicationGuidance = payload.medication_guidance || {};
+      const level = payload.confidence_assessment?.level;
+
+      setAnalysis({
+        possibleConditions: predictions.map(
+          prediction => `${prediction.disease} (${(prediction.confidence * 100).toFixed(1)}%)`,
+        ),
+        recommendedMedicines: medicationGuidance.medicine_names || [],
+        severity: level === 'higher' ? 'low' : level === 'low' ? 'high' : 'medium',
+        advice: explanation.summary || payload.message || medicationGuidance.message || 'No explanation was returned.',
+        shouldSeeDoctor: payload.status === 'urgent_attention' || Boolean(explanation.red_flags?.length),
+        selfCare: explanation.self_care || [],
+        redFlags: explanation.red_flags || [],
+        followUpQuestions: explanation.follow_up_questions || [],
+      });
     } catch (err) {
-      setError('Failed to analyze symptoms. Please try again.');
+      setError(err instanceof Error ? err.message : 'Failed to analyze symptoms. Please try again.');
     } finally {
       setIsAnalyzing(false);
     }
-  };
-
-  const getMockAnalysis = (symptomText: string): SymptomAnalysis => {
-    // Mock analysis logic based on common symptoms
-    const possibleConditions: string[] = [];
-    const recommendedMedicines: string[] = [];
-    let severity: 'low' | 'medium' | 'high' = 'low';
-    let advice = '';
-    let shouldSeeDoctor = false;
-
-    // Analyze symptoms and provide mock recommendations
-    if (symptomText.includes('fever') || symptomText.includes('temperature')) {
-      possibleConditions.push('Viral Infection', 'Bacterial Infection');
-      recommendedMedicines.push('Paracetamol', 'Ibuprofen');
-      severity = 'medium';
-      advice = 'Rest well and stay hydrated. Monitor your temperature regularly.';
-    }
-
-    if (symptomText.includes('cough') || symptomText.includes('throat')) {
-      possibleConditions.push('Upper Respiratory Infection', 'Common Cold');
-      recommendedMedicines.push('Cough Syrup', 'Throat Lozenges');
-      severity = 'low';
-      advice = 'Gargle with warm salt water and avoid cold drinks.';
-    }
-
-    if (symptomText.includes('headache') || symptomText.includes('head pain')) {
-      possibleConditions.push('Tension Headache', 'Migraine');
-      recommendedMedicines.push('Paracetamol', 'Ibuprofen');
-      severity = 'low';
-      advice = 'Rest in a dark, quiet room and apply a cold compress.';
-    }
-
-    if (symptomText.includes('stomach') || symptomText.includes('nausea') || symptomText.includes('vomit')) {
-      possibleConditions.push('Gastroenteritis', 'Food Poisoning');
-      recommendedMedicines.push('Antacids', 'Electrolyte Solution');
-      severity = 'medium';
-      advice = 'Avoid solid foods for a few hours and drink plenty of fluids.';
-    }
-
-    if (symptomText.includes('chest pain') || symptomText.includes('breathing')) {
-      possibleConditions.push('Respiratory Issue', 'Cardiac Concern');
-      recommendedMedicines.push('Consult Doctor Immediately');
-      severity = 'high';
-      advice = 'Seek immediate medical attention.';
-      shouldSeeDoctor = true;
-    }
-
-    if (symptomText.includes('rash') || symptomText.includes('skin')) {
-      possibleConditions.push('Allergic Reaction', 'Skin Infection');
-      recommendedMedicines.push('Antihistamines', 'Topical Cream');
-      severity = 'medium';
-      advice = 'Avoid scratching and keep the area clean and dry.';
-    }
-
-    // Default response if no specific symptoms match
-    if (possibleConditions.length === 0) {
-      possibleConditions.push('General Symptoms');
-      recommendedMedicines.push('General Pain Relief');
-      advice = 'Monitor your symptoms and consult a healthcare professional if they persist or worsen.';
-    }
-
-    return {
-      possibleConditions,
-      recommendedMedicines,
-      severity,
-      advice,
-      shouldSeeDoctor
-    };
   };
 
   const getSeverityColor = (severity: string) => {
@@ -213,6 +208,33 @@ const SymptomChecker: React.FC = () => {
               <h4 className="font-medium text-gray-900 mb-2">Advice:</h4>
               <p className="text-gray-700 bg-gray-50 p-3 rounded-lg">{analysis.advice}</p>
             </div>
+
+            {analysis.selfCare.length > 0 && (
+              <div>
+                <h4 className="font-medium text-gray-900 mb-2">Helpful Steps:</h4>
+                <ul className="list-disc space-y-1 pl-5 text-gray-700">
+                  {analysis.selfCare.map((item, index) => <li key={index}>{item}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {analysis.redFlags.length > 0 && (
+              <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg">
+                <h4 className="font-medium mb-2">Danger Signs:</h4>
+                <ul className="list-disc space-y-1 pl-5">
+                  {analysis.redFlags.map((item, index) => <li key={index}>{item}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {analysis.followUpQuestions.length > 0 && (
+              <div>
+                <h4 className="font-medium text-gray-900 mb-2">Follow-up Questions:</h4>
+                <ul className="list-disc space-y-1 pl-5 text-gray-700">
+                  {analysis.followUpQuestions.map((item, index) => <li key={index}>{item}</li>)}
+                </ul>
+              </div>
+            )}
 
             {analysis.shouldSeeDoctor && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">

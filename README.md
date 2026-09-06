@@ -132,3 +132,16 @@ The frontend should call:
 POST https://your-backend.example.com/api/symptom-check
 POST https://your-backend.example.com/api/symptom-check/stream
 ```
+
+## Frontend API connection
+
+The active frontend symptom checker uses `VITE_API_BASE_URL` and sends real
+requests to the FastAPI backend. Create a frontend `.env` file from
+`frontend.env.example` and set it to the current Cloudflare tunnel URL:
+
+```text
+VITE_API_BASE_URL=https://your-cloudflare-tunnel.trycloudflare.com
+```
+
+After changing a Vite environment variable, rebuild and redeploy the frontend.
+The deployed frontend must not use `localhost`.
